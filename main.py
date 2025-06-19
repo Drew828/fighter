@@ -1,109 +1,183 @@
-import random
+import pygame
 import time
+import display
+import movement
+from fighter import Fighter
 
-# Player's initial stats
-player = {
-    "hearts": 5,  # 5 hearts initially
-    "energy": 100,  # starting energy
-    "points": 100,  # starting points (independent from hearts)
-    "match_time": 0  # match starts at 0 seconds
-}
+ATTACK_RANGE = 70
+PUNCH_DAMAGE = 5
+KICK_DAMAGE = 10
+SPIN_KICK_DAMAGE = 15
 
-# Functions for actions
-def punch():
-    """Punch action."""
-    if player["energy"] >= 10:
-        player["energy"] -= 10
-        player["points"] -= 5  # Punch removes 5 points
-        player["hearts"] -= 1   # Punch removes 1 heart
-        print("You threw a punch! (-5 points, -1 heart, -10 energy)")
-    else:
-        print("Not enough energy to punch!")
+def is_in_range(attacker, defender):
+    return abs(attacker.x - defender.x) <= ATTACK_RANGE
 
-def kick():
-    """Kick action."""
-    if player["energy"] >= 20:
-        player["energy"] -= 20
-        player["points"] -= 10  # Kick removes 10 points
-        player["hearts"] -= 1   # Kick removes 1 heart
-        print("You kicked! (-10 points, -1 heart, -20 energy)")
-    else:
-        print("Not enough energy to kick!")
+def play_game():
+    def create_new_fighter(x, facing_right, color):
+        fighter = Fighter(x, display.RING_FLOOR_HEIGHT - 100, facing_right=facing_right, color=color)
+        # Add cooldown tracking for each move
+        fighter.cooldowns = {
+            "punch": 0,
+            "kick": 0,
+            "spinkick": 0
+        }
+        return fighter
 
-def spinning_kick():
-    """Spinning kick action."""
-    if player["energy"] >= 30:
-        player["energy"] -= 30
-        player["points"] -= 20  # Spinning kick removes 20 points
-        player["hearts"] -= 1   # Spinning kick removes 1 heart
-        print("You performed a spinning kick! (-20 points, -1 heart, -30 energy)")
-    else:
-        print("Not enough energy for a spinning kick!")
+    def reset_game():
+        nonlocal fighter1, fighter2, messages, accum_time, energy_penalty_time1, energy_penalty_time2
+        fighter1 = create_new_fighter(200, True, (220,0,0))
+        fighter2 = create_new_fighter(600, False, (100,0,128))
+        messages.clear()
+        accum_time = 0
+        energy_penalty_time1 = 0
+        energy_penalty_time2 = 0
 
-def block():
-    """Block action with a 50% chance to stop the attack."""
-    if player["energy"] >= 5:
-        player["energy"] -= 5
-        chance = random.random()
-        if chance < 0.5:
-            print("You successfully blocked the attack! (-5 energy)")
-        else:
-            print("Block failed, you took damage! (-5 energy)")
-    else:
-        print("Not enough energy to block!")
+    pygame.init()
+    screen = pygame.display.set_mode((800, 600))
+    pygame.display.set_caption("Taekwondo Simulation - Two Fighters")
+    font = pygame.font.SysFont(None, 24)
 
-def hearts_or_points():
-    """Hearts action."""
-    # Print the number of hearts and points independently
-    print("You have " + str(player["hearts"]) + " hearts, worth " + str(player["points"]) + " points.")
+    messages = []
+    fighter1 = create_new_fighter(200, True, (0,0,0))
+    fighter2 = create_new_fighter(600, False, (100,0,128))
+    clock = pygame.time.Clock()
+    last_time = time.time()
+    accum_time = 0
+    energy_penalty_time1 = 0
+    energy_penalty_time2 = 0
+    running = True
 
-def match():
-    """Start or manage match."""
-    player["match_time"] += 5
-    print("Match time: {player['match_time']} seconds")
-    
-    # Every 5 seconds, gain either 1 heart or 20 points
-    if player["match_time"] % 5 == 0:
-        if player["hearts"] < 5:
-            # If the player has fewer than 5 hearts, gain a heart
-            player["hearts"] += 1
-            print("You gained a heart! (+1 heart)")
-        else:
-            # If max hearts reached, gain points instead
-            player["points"] += 20  # Gain points when max hearts are reached
-            print("You gained 20 points!")
+    while running:
+        dt = time.time() - last_time
+        last_time = time.time()
+        accum_time += dt
+        energy_penalty_time1 += dt
+        energy_penalty_time2 += dt
 
-def energy():
-    """Energy status."""
-    print("You have " + str(player["energy"]) + " energy left.")
+        now = time.time()  # For cooldown checks
 
-# Create the dictionary that maps abbreviations to functions
-my_dict = {
-    "punc": punch,
-    "kic": kick,
-    "spk": spinning_kick,
-    "blk": block,
-    "hrt": hearts_or_points,
-    "mtc": match,
-    "eng": energy,
-}
+        new_game_button = display.draw_ui(screen, font, fighter1, fighter2, messages)
 
-# Example of how to call functions using the dictionary
-actions = [
-    "punc",  # Punch
-    "kic",   # Kick
-    "spk",   # Spinning Kick
-    "blk",   # Block
-    "mtc",   # 5-second match update
-    "eng",   # Check energy
-    "hrt"    # Check hearts and points
-]
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                if new_game_button.collidepoint(event.pos):
+                    reset_game()
 
-# Using a loop to call functions from the dictionary
-for action in actions:
-    try:
-        my_dict[action]()  # Call each function from the dictionary
-    except KeyError as e:
-        print(f"KeyError: {e} - Please make sure the key is spelled correctly.")
-    except Exception as e:
-        print(f"An error occurred: {e}")
+        keys = pygame.key.get_pressed()
+        # --- Player 1 Controls (WASD + F/G/H/R/1/2/3) ---
+        if keys[pygame.K_a]: fighter1.perform_action("left")
+        if keys[pygame.K_d]: fighter1.perform_action("right")
+        if keys[pygame.K_w]: fighter1.perform_action("jump")
+        if keys[pygame.K_f]:  # Punch
+            if now - fighter1.cooldowns["punch"] >= 0.5:
+                movement.punc(fighter1, messages)
+                fighter1.cooldowns["punch"] = now
+                if is_in_range(fighter1, fighter2) and fighter2.hrt > 0:
+                    fighter2.take_damage(PUNCH_DAMAGE)
+                    messages.append("P1 punched P2!")
+        if keys[pygame.K_g]:  # Kick
+            if now - fighter1.cooldowns["kick"] >= 1.0:
+                movement.kic(fighter1, messages)
+                fighter1.cooldowns["kick"] = now
+                if is_in_range(fighter1, fighter2) and fighter2.hrt > 0:
+                    fighter2.take_damage(KICK_DAMAGE)
+                    messages.append("P1 kicked P2!")
+        if keys[pygame.K_h]:  # Spinning Kick
+            if now - fighter1.cooldowns["spinkick"] >= 2.0:
+                movement.spk(fighter1, messages)
+                fighter1.cooldowns["spinkick"] = now
+                if is_in_range(fighter1, fighter2) and fighter2.hrt > 0:
+                    fighter2.take_damage(SPIN_KICK_DAMAGE)
+                    messages.append("P1 spinning kicked P2!")
+        if keys[pygame.K_r]: movement.blk(fighter1, messages)
+        if keys[pygame.K_1]: movement.upgrade(fighter1, messages, "offense")
+        if keys[pygame.K_2]: movement.upgrade(fighter1, messages, "defense")
+        if keys[pygame.K_3]: movement.upgrade(fighter1, messages, "health")
+
+        # --- Player 2 Controls (Arrows + Space/K/L/J/8/9/0) ---
+        if keys[pygame.K_LEFT]: fighter2.perform_action("left")
+        if keys[pygame.K_RIGHT]: fighter2.perform_action("right")
+        if keys[pygame.K_UP]: fighter2.perform_action("jump")
+        if keys[pygame.K_SPACE]:  # Punch
+            if now - fighter2.cooldowns["punch"] >= 0.5:
+                movement.punc(fighter2, messages)
+                fighter2.cooldowns["punch"] = now
+                if is_in_range(fighter2, fighter1) and fighter1.hrt > 0:
+                    fighter1.take_damage(PUNCH_DAMAGE)
+                    messages.append("P2 punched P1!")
+        if keys[pygame.K_k]:  # Kick
+            if now - fighter2.cooldowns["kick"] >= 1.0:
+                movement.kic(fighter2, messages)
+                fighter2.cooldowns["kick"] = now
+                if is_in_range(fighter2, fighter1) and fighter1.hrt > 0:
+                    fighter1.take_damage(KICK_DAMAGE)
+                    messages.append("P2 kicked P1!")
+        if keys[pygame.K_l]:  # Spinning Kick
+            if now - fighter2.cooldowns["spinkick"] >= 2.0:
+                movement.spk(fighter2, messages)
+                fighter2.cooldowns["spinkick"] = now
+                if is_in_range(fighter2, fighter1) and fighter1.hrt > 0:
+                    fighter1.take_damage(SPIN_KICK_DAMAGE)
+                    messages.append("P2 spinning kicked P1!")
+        if keys[pygame.K_j]: movement.blk(fighter2, messages)
+        if keys[pygame.K_8]: movement.upgrade(fighter2, messages, "offense")
+        if keys[pygame.K_9]: movement.upgrade(fighter2, messages, "defense")
+        if keys[pygame.K_0]: movement.upgrade(fighter2, messages, "health")
+
+        # Regenerate energy
+        if fighter1.eng < 100:
+            fighter1.eng = min(fighter1.eng + 10 * dt, 100)
+        if fighter2.eng < 100:
+            fighter2.eng = min(fighter2.eng + 10 * dt, 100)
+
+        # Passive points and health
+        if accum_time >= 5.0:
+            accum_time -= 5.0
+            fighter1.pts += 20
+            fighter2.pts += 20
+            if fighter1.health < 100 and fighter1.hrt > 0:
+                fighter1.health = min(fighter1.health + 20, 100)
+            elif fighter1.hrt < 5 and fighter1.hrt > 0:
+                fighter1.hrt += 1
+            if fighter2.health < 100 and fighter2.hrt > 0:
+                fighter2.health = min(fighter2.health + 20, 100)
+            elif fighter2.hrt < 5 and fighter2.hrt > 0:
+                fighter2.hrt += 1
+            messages.append("+20 pts / +1 heart to both!")
+
+        # Energy penalty
+        if fighter1.eng <= 0 and energy_penalty_time1 >= 1.0 and fighter1.hrt > 0:
+            energy_penalty_time1 = 0
+            fighter1.health -= 10
+            messages.append("P1: No energy! Losing health...")
+            if fighter1.health <= 0:
+                fighter1.hrt -= 1
+                if fighter1.hrt > 0:
+                    fighter1.health = 100
+                else:
+                    fighter1.health = 0
+
+        if fighter2.eng <= 0 and energy_penalty_time2 >= 1.0 and fighter2.hrt > 0:
+            energy_penalty_time2 = 0
+            fighter2.health -= 10
+            messages.append("P2: No energy! Losing health...")
+            if fighter2.health <= 0:
+                fighter2.hrt -= 20
+                if fighter2.hrt > 0:
+                    fighter2.health = 100
+                else:
+                    fighter2.health = 0
+
+        fighter1.update(dt)
+        fighter2.update(dt)
+        clock.tick(60)
+
+    return False
+
+if __name__ == "__main__":
+   while True:
+       play_again = play_game()
+       if not play_again:
+           break
